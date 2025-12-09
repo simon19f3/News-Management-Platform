@@ -1,4 +1,5 @@
 import { Article } from "./types";
+import { mockNews } from "./mock";
 
 export type NewsApiResponse = {
   totalArticles: number;
@@ -9,9 +10,7 @@ const API_KEY = "375a15202c7727858ae2908c6dc24d99";
 const BASE_URL = "https://gnews.io/api/v4";
 
 function transformData(data: any, category: string): Article[] {
-  if (!data?.articles || !Array.isArray(data.articles)) {
-    return [];
-  }
+  if (!data?.articles || !Array.isArray(data.articles)) return [];
 
   return data.articles.map((a: any) => ({
     id: a.url,
@@ -25,7 +24,7 @@ function transformData(data: any, category: string): Article[] {
     category: category,
     source: {
       id: null,
-      name: a.source?.name || "Unknown Source",
+      name: a.source?.name || "Unknown",
       url: a.source?.url || "#",
       country: "us"
     }
@@ -43,6 +42,16 @@ export async function fetchArticles(category: string = "general", page: number =
   try {
     const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
 
+    // 1. Handle API Quota Exceeded (403) -> Fallback to Mock
+    if (res.status === 403) {
+      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
+      const filtered = category === "general" 
+        ? mockNews.articles 
+        : mockNews.articles.filter(a => a.category.toLowerCase() === category.toLowerCase());
+      return { totalArticles: filtered.length, articles: filtered };
+    }
+
+    // 2. Handle other API errors
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.message || `API Error: ${res.status}`);
@@ -53,9 +62,16 @@ export async function fetchArticles(category: string = "general", page: number =
       totalArticles: data.totalArticles || 0,
       articles: transformData(data, category),
     };
-  } catch (error) {
+
+  } catch (error: any) {
+    // 3. Handle Offline / Network Errors specially
+    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
+      // We do NOT log this to console.error to avoid noise in the dev terminal
+      throw new Error("No internet connection. Please check your network.");
+    }
+
     console.error(`Fetch failed for category "${category}":`, error);
-    return { totalArticles: 0, articles: [] };
+    throw new Error(error.message || "Failed to connect to news service.");
   }
 }
 
@@ -71,20 +87,22 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
   try {
     const res = await fetch(url.toString(), { cache: 'no-store' });
 
-    if (!res.ok) {
-      // FIXED: Handle 400 Bad Request gracefully. 
-      // GNews sends 400 if the query is invalid (e.g. only special chars like "@#$").
-      // We treat this as "0 results found" instead of crashing.
-      if (res.status === 400) {
-        console.warn(`GNews API returned 400 for query "${query}". Treating as 0 results.`);
-        return { totalArticles: 0, articles: [] };
-      }
+    if (res.status === 403) {
+      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
+      const filtered = mockNews.articles.filter(a => 
+        a.title.toLowerCase().includes(query.toLowerCase()) ||
+        a.description.toLowerCase().includes(query.toLowerCase())
+      );
+      return { totalArticles: filtered.length, articles: filtered };
+    }
 
+    if (res.status === 400) {
+      return { totalArticles: 0, articles: [] };
+    }
+
+    if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      console.error("GNews API Error Response:", errorData);
-      
-      const msg = errorData.message || (errorData.errors ? JSON.stringify(errorData.errors) : `API Error: ${res.status}`);
-      throw new Error(msg);
+      throw new Error(errorData.message || `API Error: ${res.status}`);
     }
 
     const data = await res.json();
@@ -94,10 +112,12 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
     };
 
   } catch (error: any) {
-    console.error("Network or API Error in searchArticles:", error.message);
-    if (error.cause) console.error("Cause:", error.cause);
-    
-    // Pass the message up so the UI can display it
+    // Handle Offline / Network Errors specially
+    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
+      throw new Error("No internet connection. Please check your network.");
+    }
+
+    console.error("Search Error:", error);
     throw new Error(error.message || "Unable to load search results.");
   }
 }

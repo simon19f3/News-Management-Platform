@@ -7,12 +7,12 @@ NewsSphere(News Management Platform) is a lightweight news reader built with Nex
 ## Key features
 
 - App Router (Next.js) + TypeScript
-- TanStack Query for data fetching, caching and retries
+- TanStack Query for data fetching, Deduplication. Stale-While-Revalidate, caching and retries
 - GNews API integration (configurable via env var) with graceful fallback to mock data
 - Category browsing, search and paginated results
 - Article detail pages, skeleton loaders and retry UI for errors
-- Dark / light theme support via `next-themes`
-- Tailwind CSS + Framer Motion for responsive, animated UI
+- Dark / light theme support via Theme context, Theme Persistence
+- Tailwind CSS + Framer Motion for responsive, animated UI, Glassmorphism Design
 
 ---
 

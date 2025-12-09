@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  /* LIGHT MODE */
+  --background: #f8fafc;        /* Slightly off-white for better contrast */
+  --foreground: #171717;
+  --primary: #16a34a;           /* Green-600 */
+  --secondary: #dcfce7;         /* Very light green */
+  
+  /* Glassmorphism Variables - Light Mode (Minty White) */
+  --card-bg: rgba(255, 255, 255, 0.7); 
+  --card-border: rgba(22, 163, 74, 0.15); /* Subtle Green Border */
+  --card-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+[data-theme="dark"] {
+  /* DARK MODE */
+  --background: #050505;        /* Deep Black */
+  --foreground: #ededed;
+  --primary: #4ade80;           /* Green-400 (Brighter for dark mode) */
+  --secondary: #14532d;         /* Dark Green */
+  
+  /* Glassmorphism Variables - Dark Mode (Deep Emerald) */
+  --card-bg: rgba(20, 83, 45, 0.25); 
+  --card-border: rgba(74, 222, 128, 0.15); /* Neon Green Border hints */
+  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+
+body {
+  background: var(--background);
+  /* Optional: Add a subtle mesh gradient to make glass effect pop */
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(142, 60%, 85%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(142, 60%, 85%, 0.1) 0px, transparent 50%);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+  min-height: 100vh;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+[data-theme="dark"] body {
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(142, 70%, 15%, 0.2) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(142, 70%, 15%, 0.2) 0px, transparent 50%);
+}
+
+/* --- GLASSMORPHISM UTILITIES --- */
+@layer utilities {
+  .text-primary { color: var(--primary); }
+  .bg-primary { background-color: var(--primary); }
+  .bg-secondary { background-color: var(--secondary); }
+  
+  /* The Magic Glass Class */
+  .glass-card {
+    background: var(--card-bg);
+    backdrop-filter: blur(12px); /* The blur effect */
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
+  }
+}

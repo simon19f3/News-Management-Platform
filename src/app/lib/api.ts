@@ -6,7 +6,7 @@ export type NewsApiResponse = {
   articles: Article[];
 };
 
-const API_KEY = 99b17bfa97fef57cb5083b449fbb01c2// Your GNews API Key
+const API_KEY = "99b17bfa97fef57cb5083b449fbb01c2"; // Replace with your GNews API key
 const BASE_URL = "https://gnews.io/api/v4";
 
 function transformData(data: any, category: string): Article[] {

@@ -5,7 +5,8 @@ export type NewsApiResponse = {
   articles: Article[];
 };
 
-const API_KEY = "375a15202c7727858ae2908c6dc24d99";
+// ✔ Load API key from env
+const API_KEY = process.env.NEXT_PUBLIC_GNEWS_API_KEY || "";
 const BASE_URL = "https://gnews.io/api/v4";
 
 function transformData(data: any, category: string): Article[] {
@@ -33,6 +34,8 @@ function transformData(data: any, category: string): Article[] {
 }
 
 export async function fetchArticles(category: string = "general", page: number = 1): Promise<NewsApiResponse> {
+  if (!API_KEY) throw new Error("Missing GNews API key");
+
   const url = new URL(`${BASE_URL}/top-headlines`);
   url.searchParams.append("apikey", API_KEY);
   url.searchParams.append("category", category);
@@ -60,6 +63,8 @@ export async function fetchArticles(category: string = "general", page: number =
 }
 
 export async function searchArticles(query: string, page: number = 1): Promise<NewsApiResponse> {
+  if (!API_KEY) throw new Error("Missing GNews API key");
+
   const url = new URL(`${BASE_URL}/search`);
   url.searchParams.append("apikey", API_KEY);
   url.searchParams.append("q", query);
@@ -72,18 +77,14 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
     const res = await fetch(url.toString(), { cache: 'no-store' });
 
     if (!res.ok) {
-      // FIXED: Handle 400 Bad Request gracefully. 
-      // GNews sends 400 if the query is invalid (e.g. only special chars like "@#$").
-      // We treat this as "0 results found" instead of crashing.
       if (res.status === 400) {
         console.warn(`GNews API returned 400 for query "${query}". Treating as 0 results.`);
         return { totalArticles: 0, articles: [] };
       }
 
       const errorData = await res.json().catch(() => ({}));
-      console.error("GNews API Error Response:", errorData);
-      
-      const msg = errorData.message || (errorData.errors ? JSON.stringify(errorData.errors) : `API Error: ${res.status}`);
+      const msg = errorData.message || 
+                  (errorData.errors ? JSON.stringify(errorData.errors) : `API Error: ${res.status}`);
       throw new Error(msg);
     }
 
@@ -95,9 +96,6 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
 
   } catch (error: any) {
     console.error("Network or API Error in searchArticles:", error.message);
-    if (error.cause) console.error("Cause:", error.cause);
-    
-    // Pass the message up so the UI can display it
     throw new Error(error.message || "Unable to load search results.");
   }
 }

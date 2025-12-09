@@ -1,18 +1,16 @@
 import { Article } from "./types";
+import { mockNews } from "./mock";
 
 export type NewsApiResponse = {
   totalArticles: number;
   articles: Article[];
 };
 
-// ✔ Load API key from env
-const API_KEY = process.env.NEXT_PUBLIC_GNEWS_API_KEY || "";
+const API_KEY = process.env.NEXT_PUBLIC_GNEWS_API_KEY || ""; // Your GNews API Key
 const BASE_URL = "https://gnews.io/api/v4";
 
 function transformData(data: any, category: string): Article[] {
-  if (!data?.articles || !Array.isArray(data.articles)) {
-    return [];
-  }
+  if (!data?.articles || !Array.isArray(data.articles)) return [];
 
   return data.articles.map((a: any) => ({
     id: a.url,
@@ -26,7 +24,7 @@ function transformData(data: any, category: string): Article[] {
     category: category,
     source: {
       id: null,
-      name: a.source?.name || "Unknown Source",
+      name: a.source?.name || "Unknown",
       url: a.source?.url || "#",
       country: "us"
     }
@@ -34,8 +32,6 @@ function transformData(data: any, category: string): Article[] {
 }
 
 export async function fetchArticles(category: string = "general", page: number = 1): Promise<NewsApiResponse> {
-  if (!API_KEY) throw new Error("Missing GNews API key");
-
   const url = new URL(`${BASE_URL}/top-headlines`);
   url.searchParams.append("apikey", API_KEY);
   url.searchParams.append("category", category);
@@ -46,6 +42,16 @@ export async function fetchArticles(category: string = "general", page: number =
   try {
     const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
 
+    // 1. Handle API Quota Exceeded (403) -> Fallback to Mock
+    if (res.status === 403) {
+      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
+      const filtered = category === "general" 
+        ? mockNews.articles 
+        : mockNews.articles.filter(a => a.category.toLowerCase() === category.toLowerCase());
+      return { totalArticles: filtered.length, articles: filtered };
+    }
+
+    // 2. Handle other API errors
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.message || `API Error: ${res.status}`);
@@ -56,15 +62,20 @@ export async function fetchArticles(category: string = "general", page: number =
       totalArticles: data.totalArticles || 0,
       articles: transformData(data, category),
     };
-  } catch (error) {
+
+  } catch (error: any) {
+    // 3. Handle Offline / Network Errors specially
+    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
+      // We do NOT log this to console.error to avoid noise in the dev terminal
+      throw new Error("No internet connection. Please check your network.");
+    }
+
     console.error(`Fetch failed for category "${category}":`, error);
-    return { totalArticles: 0, articles: [] };
+    throw new Error(error.message || "Failed to connect to news service.");
   }
 }
 
 export async function searchArticles(query: string, page: number = 1): Promise<NewsApiResponse> {
-  if (!API_KEY) throw new Error("Missing GNews API key");
-
   const url = new URL(`${BASE_URL}/search`);
   url.searchParams.append("apikey", API_KEY);
   url.searchParams.append("q", query);
@@ -76,16 +87,22 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
   try {
     const res = await fetch(url.toString(), { cache: 'no-store' });
 
-    if (!res.ok) {
-      if (res.status === 400) {
-        console.warn(`GNews API returned 400 for query "${query}". Treating as 0 results.`);
-        return { totalArticles: 0, articles: [] };
-      }
+    if (res.status === 403) {
+      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
+      const filtered = mockNews.articles.filter(a => 
+        a.title.toLowerCase().includes(query.toLowerCase()) ||
+        a.description.toLowerCase().includes(query.toLowerCase())
+      );
+      return { totalArticles: filtered.length, articles: filtered };
+    }
 
+    if (res.status === 400) {
+      return { totalArticles: 0, articles: [] };
+    }
+
+    if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      const msg = errorData.message || 
-                  (errorData.errors ? JSON.stringify(errorData.errors) : `API Error: ${res.status}`);
-      throw new Error(msg);
+      throw new Error(errorData.message || `API Error: ${res.status}`);
     }
 
     const data = await res.json();
@@ -95,7 +112,12 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
     };
 
   } catch (error: any) {
-    console.error("Network or API Error in searchArticles:", error.message);
+    // Handle Offline / Network Errors specially
+    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
+      throw new Error("No internet connection. Please check your network.");
+    }
+
+    console.error("Search Error:", error);
     throw new Error(error.message || "Unable to load search results.");
   }
 }

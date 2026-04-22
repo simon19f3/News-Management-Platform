@@ -2,7 +2,7 @@ import { Article } from "./types";
 import { mockNews } from "./mock";
 
 /* ================================
-   TYPES (NewsData.io Response)
+   TYPES (NewsData.io Raw Response)
 ================================ */
 
 type NewsDataArticle = {
@@ -28,6 +28,15 @@ type NewsDataResponse = {
 };
 
 /* ================================
+   NORMALIZED APP RESPONSE (IMPORTANT)
+================================ */
+
+export type NewsResponse = {
+  totalArticles: number;
+  articles: Article[];
+};
+
+/* ================================
    CONFIG
 ================================ */
 
@@ -38,7 +47,10 @@ const BASE_URL = "https://newsdata.io/api/1";
    MAPPER (Single Article)
 ================================ */
 
-function mapNewsDataArticle(a: NewsDataArticle, fallbackCategory: string): Article {
+function mapNewsDataArticle(
+  a: NewsDataArticle,
+  fallbackCategory: string
+): Article {
   return {
     id: a.article_id || a.link,
     title: a.title?.trim() || "Untitled",
@@ -62,12 +74,15 @@ function mapNewsDataArticle(a: NewsDataArticle, fallbackCategory: string): Artic
    TRANSFORMER
 ================================ */
 
-function transformData(data: NewsDataResponse, category: string): Article[] {
+function transformData(
+  data: NewsDataResponse,
+  category: string
+): Article[] {
   if (!data?.results || !Array.isArray(data.results)) return [];
 
   return data.results
-    .filter(a => a && a.link) // remove invalid items
-    .map(a => mapNewsDataArticle(a, category));
+    .filter((a: NewsDataArticle) => Boolean(a?.link))
+    .map((a: NewsDataArticle) => mapNewsDataArticle(a, category));
 }
 
 /* ================================
@@ -77,7 +92,7 @@ function transformData(data: NewsDataResponse, category: string): Article[] {
 export async function fetchArticles(
   query: string = "example",
   page: number = 1
-): Promise<{ totalArticles: number; articles: Article[] }> {
+): Promise<NewsResponse> {
   const url = new URL(`${BASE_URL}/archive`);
 
   url.searchParams.append("apikey", API_KEY);
@@ -96,7 +111,7 @@ export async function fetchArticles(
 
   try {
     const res = await fetch(url.toString(), {
-      next: { revalidate: 3600 }, // cache 1 hour (Next.js)
+      next: { revalidate: 3600 },
     });
 
     /* ========= QUOTA HANDLING ========= */
@@ -126,14 +141,18 @@ export async function fetchArticles(
       articles: transformData(data, "general"),
     };
 
-  } catch (error: any) {
-    /* ========= NETWORK ERROR ========= */
-    if (error.name === "TypeError" || error.message === "Failed to fetch") {
+  } catch (error: unknown) {
+    if (
+      error instanceof TypeError ||
+      (error as Error).message === "Failed to fetch"
+    ) {
       throw new Error("No internet connection. Please check your network.");
     }
 
     console.error("Fetch Error:", error);
-    throw new Error(error.message || "Failed to fetch news.");
+    throw new Error(
+      (error as Error).message || "Failed to fetch news."
+    );
   }
 }
 
@@ -144,7 +163,7 @@ export async function fetchArticles(
 export async function searchArticles(
   query: string,
   page: number = 1
-): Promise<{ totalArticles: number; articles: Article[] }> {
+): Promise<NewsResponse> {
   const url = new URL(`${BASE_URL}/archive`);
 
   url.searchParams.append("apikey", API_KEY);
@@ -159,7 +178,8 @@ export async function searchArticles(
 
     if (res.status === 429 || res.status === 403) {
       console.warn("Quota exceeded. Using mock search.");
-      const filtered = mockNews.articles.filter(a =>
+
+      const filtered = mockNews.articles.filter((a: Article) =>
         a.title.toLowerCase().includes(query.toLowerCase()) ||
         a.description.toLowerCase().includes(query.toLowerCase())
       );
@@ -186,12 +206,17 @@ export async function searchArticles(
       articles: transformData(data, "search"),
     };
 
-  } catch (error: any) {
-    if (error.name === "TypeError" || error.message === "Failed to fetch") {
+  } catch (error: unknown) {
+    if (
+      error instanceof TypeError ||
+      (error as Error).message === "Failed to fetch"
+    ) {
       throw new Error("No internet connection. Please check your network.");
     }
 
     console.error("Search Error:", error);
-    throw new Error(error.message || "Unable to load search results.");
+    throw new Error(
+      (error as Error).message || "Unable to load search results."
+    );
   }
 }

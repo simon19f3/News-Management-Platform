@@ -1,99 +1,173 @@
 import { Article } from "./types";
 import { mockNews } from "./mock";
 
-export type NewsApiResponse = {
-  totalArticles: number;
-  articles: Article[];
+/* ================================
+   TYPES (NewsData.io Response)
+================================ */
+
+type NewsDataArticle = {
+  article_id: string;
+  title: string;
+  description: string | null;
+  content: string | null;
+  link: string;
+  image_url: string | null;
+  pubDate: string;
+  language: string;
+  category: string[];
+  source_id: string | null;
+  source_name: string;
+  source_url?: string;
+  country: string[];
 };
 
-const API_KEY = "99b17bfa97fef57cb5083b449fbb01c2"; // Replace with your GNews API key
-const BASE_URL = "https://gnews.io/api/v4";
+type NewsDataResponse = {
+  status: string;
+  totalResults: number;
+  results: NewsDataArticle[];
+};
 
-function transformData(data: any, category: string): Article[] {
-  if (!data?.articles || !Array.isArray(data.articles)) return [];
+/* ================================
+   CONFIG
+================================ */
 
-  return data.articles.map((a: any) => ({
-    id: a.url,
-    title: a.title,
-    description: a.description || "No description available.",
-    content: a.content || "",
-    url: a.url,
-    image: a.image || "https://placehold.co/600x400?text=News",
-    publishedAt: a.publishedAt,
-    lang: "en",
-    category: category,
+const API_KEY = "pub_825bf55287fb41c5834ddae7c18df01a"; // move to env in production
+const BASE_URL = "https://newsdata.io/api/1";
+
+/* ================================
+   MAPPER (Single Article)
+================================ */
+
+function mapNewsDataArticle(a: NewsDataArticle, fallbackCategory: string): Article {
+  return {
+    id: a.article_id || a.link,
+    title: a.title?.trim() || "Untitled",
+    description: a.description?.trim() || "No description available.",
+    content: a.content?.trim() || "",
+    url: a.link,
+    image: a.image_url || "https://placehold.co/600x400?text=News",
+    publishedAt: a.pubDate,
+    lang: a.language || "en",
+    category: a.category?.[0] || fallbackCategory,
     source: {
-      id: null,
-      name: a.source?.name || "Unknown",
-      url: a.source?.url || "#",
-      country: "us"
-    }
-  }));
+      id: a.source_id || null,
+      name: a.source_name || "Unknown Source",
+      url: a.source_url || "#",
+      country: a.country?.[0] || "",
+    },
+  };
 }
 
-export async function fetchArticles(category: string = "general", page: number = 1): Promise<NewsApiResponse> {
-  const url = new URL(`${BASE_URL}/top-headlines`);
+/* ================================
+   TRANSFORMER
+================================ */
+
+function transformData(data: NewsDataResponse, category: string): Article[] {
+  if (!data?.results || !Array.isArray(data.results)) return [];
+
+  return data.results
+    .filter(a => a && a.link) // remove invalid items
+    .map(a => mapNewsDataArticle(a, category));
+}
+
+/* ================================
+   FETCH ARTICLES (Archive Endpoint)
+================================ */
+
+export async function fetchArticles(
+  query: string = "example",
+  page: number = 1
+): Promise<{ totalArticles: number; articles: Article[] }> {
+  const url = new URL(`${BASE_URL}/archive`);
+
   url.searchParams.append("apikey", API_KEY);
-  url.searchParams.append("category", category);
-  url.searchParams.append("lang", "en");
-  url.searchParams.append("max", "10");
+  url.searchParams.append("q", query);
+  url.searchParams.append("language", "en");
+
+  // dynamic date range (last 7 days)
+  const today = new Date();
+  const past = new Date();
+  past.setDate(today.getDate() - 7);
+
+  url.searchParams.append("from_date", past.toISOString().split("T")[0]);
+  url.searchParams.append("to_date", today.toISOString().split("T")[0]);
+
   url.searchParams.append("page", page.toString());
 
   try {
-    const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+    const res = await fetch(url.toString(), {
+      next: { revalidate: 3600 }, // cache 1 hour (Next.js)
+    });
 
-    // 1. Handle API Quota Exceeded (403) -> Fallback to Mock
-    if (res.status === 403) {
-      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
-      const filtered = category === "general" 
-        ? mockNews.articles 
-        : mockNews.articles.filter(a => a.category.toLowerCase() === category.toLowerCase());
-      return { totalArticles: filtered.length, articles: filtered };
+    /* ========= QUOTA HANDLING ========= */
+    if (res.status === 429 || res.status === 403) {
+      console.warn("API quota exceeded. Using mock data.");
+      return {
+        totalArticles: mockNews.articles.length,
+        articles: mockNews.articles,
+      };
     }
 
-    // 2. Handle other API errors
+    /* ========= BAD REQUEST ========= */
+    if (res.status === 400) {
+      return { totalArticles: 0, articles: [] };
+    }
+
+    /* ========= OTHER ERRORS ========= */
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.message || `API Error: ${res.status}`);
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `API Error: ${res.status}`);
     }
 
-    const data = await res.json();
+    const data: NewsDataResponse = await res.json();
+
     return {
-      totalArticles: data.totalArticles || 0,
-      articles: transformData(data, category),
+      totalArticles: data.totalResults || 0,
+      articles: transformData(data, "general"),
     };
 
   } catch (error: any) {
-    // 3. Handle Offline / Network Errors specially
-    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
-      // We do NOT log this to console.error to avoid noise in the dev terminal
+    /* ========= NETWORK ERROR ========= */
+    if (error.name === "TypeError" || error.message === "Failed to fetch") {
       throw new Error("No internet connection. Please check your network.");
     }
 
-    console.error(`Fetch failed for category "${category}":`, error);
-    throw new Error(error.message || "Failed to connect to news service.");
+    console.error("Fetch Error:", error);
+    throw new Error(error.message || "Failed to fetch news.");
   }
 }
 
-export async function searchArticles(query: string, page: number = 1): Promise<NewsApiResponse> {
-  const url = new URL(`${BASE_URL}/search`);
+/* ================================
+   SEARCH ARTICLES
+================================ */
+
+export async function searchArticles(
+  query: string,
+  page: number = 1
+): Promise<{ totalArticles: number; articles: Article[] }> {
+  const url = new URL(`${BASE_URL}/archive`);
+
   url.searchParams.append("apikey", API_KEY);
   url.searchParams.append("q", query);
-  url.searchParams.append("lang", "en");
-  url.searchParams.append("max", "10");
-  url.searchParams.append("sortby", "publishedAt");
+  url.searchParams.append("language", "en");
   url.searchParams.append("page", page.toString());
 
   try {
-    const res = await fetch(url.toString(), { cache: 'no-store' });
+    const res = await fetch(url.toString(), {
+      cache: "no-store",
+    });
 
-    if (res.status === 403) {
-      console.warn(`API Quota Exceeded. Switching to Mock Data.`);
-      const filtered = mockNews.articles.filter(a => 
+    if (res.status === 429 || res.status === 403) {
+      console.warn("Quota exceeded. Using mock search.");
+      const filtered = mockNews.articles.filter(a =>
         a.title.toLowerCase().includes(query.toLowerCase()) ||
         a.description.toLowerCase().includes(query.toLowerCase())
       );
-      return { totalArticles: filtered.length, articles: filtered };
+
+      return {
+        totalArticles: filtered.length,
+        articles: filtered,
+      };
     }
 
     if (res.status === 400) {
@@ -101,19 +175,19 @@ export async function searchArticles(query: string, page: number = 1): Promise<N
     }
 
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.message || `API Error: ${res.status}`);
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `API Error: ${res.status}`);
     }
 
-    const data = await res.json();
+    const data: NewsDataResponse = await res.json();
+
     return {
-      totalArticles: data.totalArticles || 0,
+      totalArticles: data.totalResults || 0,
       articles: transformData(data, "search"),
     };
 
   } catch (error: any) {
-    // Handle Offline / Network Errors specially
-    if (error.name === 'TypeError' || error.message === 'Failed to fetch') {
+    if (error.name === "TypeError" || error.message === "Failed to fetch") {
       throw new Error("No internet connection. Please check your network.");
     }
 

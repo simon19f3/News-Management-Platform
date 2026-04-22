@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchArticles, searchArticles, NewsDataResponse } from "../app/lib/api";
+import { fetchArticles, searchArticles, NewsResponse } from "../app/lib/api";
 
 interface UseNewsParams {
   category?: string;
@@ -11,7 +11,7 @@ const STALE_TIME = 5 * 60 * 1000;
 const GC_TIME = 15 * 60 * 1000;
 
 export function useNews({ category = "general", query = "", page = 1 }: UseNewsParams) {
-  return useQuery<NewsDataResponse, Error>({
+  return useQuery<NewsResponse, Error>({
     queryKey: ["news", category, query, page],
     
     queryFn: () => {
